@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>质量分析工作台</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>质量分析工作台</h1>
+  <p>明确范围 → 计划确认 → 有界取证 → 报告 → 授权追问</p>
+  <p id="provider-label" class="notice">模型配置加载中；未运行推理验收。</p>
+</header>
+<main>
+  <section aria-labelledby="identity-heading">
+    <h2 id="identity-heading">身份与权限</h2>
+    <form id="login-form" autocomplete="off">
+      <label>Bearer 令牌（仅保存在本页内存，刷新即清除）
+        <input id="token" type="password" autocomplete="off" spellcheck="false" required maxlength="512">
+      </label>
+      <div class="actions"><button type="submit">验证身份</button><button id="logout" type="button">退出并清除</button></div>
+    </form>
+    <p id="identity">尚未登录；角色与工厂授权以服务器为准。</p>
+  </section>
+  <p id="error" role="alert" class="error" hidden></p>
+  <p id="notice" role="status" class="notice" hidden></p>
+  <div id="workbench" hidden>
+    <section aria-labelledby="scope-heading">
+      <h2 id="scope-heading">1. 明确分析范围</h2>
+      <p>结束日期不包含在范围内；不会从问题文字中猜测工厂、产品、日期或指标。检索也使用此处范围。</p>
+      <form id="analyze-form">
+        <div class="grid">
+          <label>工厂 ID<input id="plant" required maxlength="100" placeholder="必须明确填写"></label>
+          <label>产品 ID<input id="product" required maxlength="100" placeholder="必须明确填写"></label>
+          <label>开始日期<input id="start" type="date" required></label>
+          <label>结束日期（不含）<input id="end" type="date" required></label>
+          <label>指标<select id="metric" required><option value="">请选择</option><option value="defect_rate">缺陷率</option><option value="rework_rate">返工率</option><option value="cycle_time_mean">平均周期时间</option></select></label>
+          <label>产线 ID（可空，逗号分隔）<input id="lines" placeholder="空表示范围内所有授权产线"></label>
+          <label>最小组样本量<input id="min-n" type="number" min="5" max="500" value="20" required></label>
+        </div>
+        <label>质量问题<textarea id="question" minlength="2" maxlength="2000" required placeholder="说明需要比较或验证的质量现象"></textarea></label>
+        <div class="actions"><button type="submit">生成计划（不执行 SQ）</button><button id="example" type="button">显式填入合成示例范围</button></div>
+      </form>
+    </section>
+    <div class="columns">
+      <section aria-labelledby="sessions-heading">
+        <h2 id="sessions-heading">我的分析会话</h2>
+        <button id="refresh-sessions" type="button">刷新会话列表</button>
+        <ul id="sessions" class="plain-list"></ul>
+      </section>
+      <section aria-labelledby="detail-heading">
+        <h2 id="detail-heading">2. 计划、执行与报告</h2>
+        <p id="session-status">请选择会话或生成新计划。</p>
+        <pre id="session-scope" hidden></pre>
+        <p id="session-error" class="error" hidden></p>
+        <button id="retry-button" type="button" hidden>显式请求恢复 / 重试（未知结果须先对账）</button>
+        <div id="trace" class="trace" aria-label="真实已执行节点"></div>
+        <form id="confirm-form" hidden>
+          <h3>首轮仅确认核心 SQ</h3>
+          <p>勾选项及其依赖才获授权；可选扩展项必须在首轮结束后另行追问。</p>
+          <div id="core-plan"></div>
+          <h4>扩展计划（此处不执行）</h4><div id="extended-plan"></div>
+          <button type="submit">确认选中的核心计划</button>
+        </form>
+        <div id="report"></div>
+        <details id="versions-panel" hidden><summary>报告版本（历史版本不替代当前证据）</summary><div id="versions"></div></details>
+        <form id="followup-form" hidden>
+          <h3>3. 明确授权追问</h3>
+          <label>追问问题<textarea id="followup-question" minlength="2" maxlength="2000" required></textarea></label>
+          <div id="followup-plan"></div>
+          <p>仅执行本次勾选 SQ 及依赖；新轮次重新取证，不复用旧证据身份。</p>
+          <button type="submit">授权并执行本次追问</button>
+        </form>
+        <button id="audit-button" type="button" hidden>查看本会话审计</button>
+        <pre id="audit" hidden></pre>
+        <details id="reconciliation-panel" hidden>
+          <summary>推理调用状态与显式对账（不显示提示词）</summary>
+          <button id="calls-button" type="button">读取当前会话调用状态</button>
+          <pre id="calls" hidden></pre>
+          <form id="reconcile-form" hidden>
+            <p>仅会话所有者且为 admin 可对账。必须核查实际模型记录；不得猜测回执、用量或声明未执行。对账后仍须另按恢复按钮，不自动重试。</p>
+            <label>待对账 Call ID<input id="reconcile-call" required maxlength="100"></label>
+            <label>实际核查说明（10–1000 字符，勿含令牌或凭据）<textarea id="reconcile-note" required minlength="10" maxlength="1000"></textarea></label>
+            <label>真实回执 JSON（{"value":阶段结构化输出,"tokens":真实正整数用量}）<textarea id="reconcile-result"></textarea></label>
+            <label><input id="reconcile-no-result" type="checkbox">或明确声明经核查无结果，授权后续人工重试（不是恰好一次保证）</label>
+            <button type="submit">提交核查结果（不执行重试）</button>
+          </form>
+        </details>
+      </section>
+    </div>
+    <section aria-labelledby="documents-heading">
+      <h2 id="documents-heading">历史报告与证据检索</h2>
+      <p>合成示例与上传报告均是参考材料，不自动成为有效因果证据。仅 analyst/admin 可入库，ACL 与删除仅 admin。</p>
+      <form id="search-form">
+        <label>检索问题（使用上方明确范围）<input id="search-query" minlength="2" maxlength="2000" required></label>
+        <button type="submit">检索已授权报告</button>
+      </form>
+      <div id="search-results"></div>
+      <details id="document-editor" hidden>
+        <summary>入库 / 上传报告</summary>
+        <form id="document-form">
+          <div class="grid">
+            <label>报告 ID<input id="document-id" maxlength="100" required></label>
+            <label>标题<input id="document-title" maxlength="200" required></label>
+            <label>报告所属工厂 ID<input id="document-plant" maxlength="100" required></label>
+            <label>共享用户 ID（逗号分隔；空表示工厂内授权用户可见）<input id="document-shared"></label>
+          </div>
+          <div class="grid">
+            <label>现象摘要<textarea id="summary-phenomenon" minlength="2" maxlength="1000" required></textarea></label>
+            <label>背景摘要<textarea id="summary-context" minlength="2" maxlength="1000" required></textarea></label>
+            <label>假设摘要<textarea id="summary-hypothesis" minlength="2" maxlength="1000" required></textarea></label>
+            <label>证据摘要<textarea id="summary-evidence" minlength="2" maxlength="1000" required></textarea></label>
+            <label>措施摘要<textarea id="summary-action" minlength="2" maxlength="1000" required></textarea></label>
+          </div>
+          <label>正文（不选文件时使用，至少 40 字符）<textarea id="document-text" maxlength="200000"></textarea></label>
+          <label>或上传文件（UTF-8 TXT / Markdown / PDF，JSON 编码后总量 ≤ 1 MiB）<input id="document-file" type="file" accept=".txt,.md,.pdf"></label>
+          <button type="submit">使用当前 provider 建索引并入库</button>
+        </form>
+      </details>
+      <details id="document-admin" hidden>
+        <summary>管理员：调整共享权限 / 删除</summary>
+        <form id="acl-form">
+          <label>报告 ID<input id="acl-id" required></label>
+          <label>允许共享的用户 ID（逗号分隔；空表示工厂内授权用户可见，不是撤销全部访问）<input id="acl-shared"></label>
+          <div class="actions"><button type="submit">更新 ACL</button><button id="delete-document" type="button" class="danger">删除该报告</button></div>
+        </form>
+      </details>
+      <details id="calibration-panel" hidden>
+        <summary>管理员：测量检索校准</summary>
+        <p>使用当前 provider 实测 fit/eval；测试桩结果不是本地 LLM/BGE 验收。安装仅绑定当前身份、权限与索引快照。不会自动使用生产阈值。</p>
+        <form id="calibration-form">
+          <label>校准工厂 ID<input id="calibration-plant" required></label>
+          <label><input id="calibration-original" type="checkbox">明确使用八篇原创合成报告的独立 fit/eval 标签（需先 seed 入库）</label>
+          <label>或提供 CalibrationCase 数组 JSON（case_id/split/query/scope/relevant_document_ids）<textarea id="calibration-cases" placeholder="每个split至少有正样本与无答案样本；fit/eval报告标签不得重叠"></textarea></label>
+          <label><input id="calibration-install" type="checkbox">明确安装本次测量结果（不勾选则只测量）</label>
+          <button type="submit">运行选参与独立评估</button>
+        </form>
+        <pre id="calibration" hidden></pre>
+      </details>
+    </section>
+  </div>
+</main>
+<footer>只做证据分析与人工决策支持，不连接外部企业系统，不执行生产措施。健康检查不等于模型验收。</footer>
+</body>
+</html>
